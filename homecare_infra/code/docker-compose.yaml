@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # Spring Boot 백엔드 API 서버
+  homecare-backend:
+    build:
+      context: ../../homecare_BE
+      dockerfile: Dockerfile
+    container_name: homecare-backend-api
+    ports:
+      - "8000:8080"
+    environment:
+      - DB_URL=jdbc:postgresql://postgres:5432/homecare_db
+      - DB_USERNAME=homecare_user
+      - DB_PASSWORD=homecare_password
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - homecare-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # Matching API 서버 (FastAPI)
+  matching-api:
+    build:
+      context: ../../homecare_matching
+      dockerfile: Dockerfile
+    container_name: homecare-matching-api
+    ports:
+      - "8001:80"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://homecare_user:homecare_password@postgres:5432/homecare_db
+      - PYTHONPATH=/code
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - homecare-network
+    restart: unless-stopped
+
+  # PostgreSQL 데이터베이스
+  postgres:
+    image: postgres:15-alpine
+    container_name: homecare-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: homecare_db
+      POSTGRES_USER: homecare_user
+      POSTGRES_PASSWORD: homecare_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      TZ: Asia/Seoul
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - homecare-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homecare_user -d homecare_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # PostgreSQL 관리용 pgAdmin (선택사항)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: homecare-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@homecare.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - homecare-network
+    restart: unless-stopped
+
+# 네트워크 설정
+networks:
+  homecare-network:
+    driver: bridge
+
+# 볼륨 설정
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
